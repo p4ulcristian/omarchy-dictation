@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.1.1
+
+Fixed:
+- `duck_playback` could leave apps at the ducked volume. A stream that doesn't
+  answer (its app stopped feeding it without closing it) makes pactl hang
+  until its timeout; ducked one at a time, a few of those outlasted the wait
+  on release, and the rest were turned down after they had been put back.
+  Streams are now set all at once, and letting go waits for the duck to end.
+
 ## 3.1.0
 
 Added:

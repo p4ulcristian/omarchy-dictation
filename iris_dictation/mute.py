@@ -17,6 +17,7 @@ import os
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 log = logging.getLogger("iris-dictation")
 
@@ -76,7 +77,8 @@ class PlaybackDucker:
 
     `level` is the share of its volume a stream keeps (0.3 = 30%); 1 turns
     this off. Ducking runs on a thread of its own so the recording starts at
-    once; restore() waits for it first.
+    once; restore() waits for it first, however long it takes: a duck that
+    finished after restore() would leave those streams down.
 
     WirePlumber remembers each app's volume by its name, the ducked one too:
     a stream the app opens while ducked (mpv starting the next file, the next
@@ -119,26 +121,21 @@ class PlaybackDucker:
         except Exception as exc:
             log.warning("could not list playback streams: %s", exc)
             return
-        for s in streams:
-            idx = str(s["index"])
-            values = self._volumes(s)
-            if not values:
-                continue
-            ducked = [round(v * self.level) for v in values]
-            try:
-                _pactl("set-sink-input-volume", idx, *map(str, ducked))
-            except Exception as exc:
-                log.warning("could not duck stream %s: %s", idx, exc)
-                continue
+        found = {str(s["index"]): (s, self._volumes(s)) for s in streams}
+        found = {idx: (s, values) for idx, (s, values) in found.items() if values}
+        ducked = _set_volumes({idx: [round(v * self.level) for v in values]
+                               for idx, (_, values) in found.items()}, "duck")
+        for idx, target in ducked.items():
+            s, values = found[idx]
             self.saved[idx] = values
             if app := self._app(s):
-                self.apps[app] = (values, ducked)
+                self.apps[app] = (values, target)
                 props = s.get("properties", {})
                 self.keys[app] = {k: props[k] for k in WP_KEYS if props.get(k)}
 
     def restore(self) -> None:
         if self.thread:
-            self.thread.join(timeout=5)
+            self.thread.join()   # bounded: each pactl call in it has a timeout
             self.thread = None
         if not self.saved:
             return
@@ -147,7 +144,7 @@ class PlaybackDucker:
         except Exception as exc:
             log.warning("could not list playback streams: %s", exc)
             streams = [{"index": idx} for idx in self.saved]   # the ones we know, at least
-        restored = set()
+        targets, apps = {}, {}
         for s in streams:
             idx = str(s["index"])
             app = self._app(s)
@@ -158,11 +155,9 @@ class PlaybackDucker:
                 if before is None or not _near(self._volumes(s), ducked):
                     continue
                 values = before
-            try:
-                _pactl("set-sink-input-volume", idx, *map(str, values))
-                restored.add(app)
-            except Exception as exc:
-                log.warning("could not restore stream %s: %s", idx, exc)
+            targets[idx] = values
+            apps[idx] = app
+        restored = {apps[idx] for idx in _set_volumes(targets, "restore")}
         gone = {app: (before, self.keys.get(app, {})) for app, (before, _) in self.apps.items()
                 if app not in restored}
         if gone:
@@ -201,6 +196,26 @@ class PlaybackDucker:
             finally:
                 player.kill()
                 player.wait()
+
+
+def _set_volumes(targets: dict[str, list[int]], verb: str) -> dict[str, list[int]]:
+    """Set these streams' volumes all at once; the ones that were set.
+
+    pactl waits for a stream to take a new volume, and one whose app stopped
+    feeding it without closing it never does: that call hangs for its whole
+    timeout. One at a time, a few of those held the rest back for seconds.
+    """
+    def one(idx: str) -> bool:
+        try:
+            _pactl("set-sink-input-volume", idx, *map(str, targets[idx]))
+            return True
+        except Exception as exc:
+            log.warning("could not %s stream %s: %s", verb, idx, exc)
+            return False
+    if not targets:
+        return {}
+    with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+        return {idx: targets[idx] for idx, ok in zip(targets, pool.map(one, targets)) if ok}
 
 
 # What WirePlumber remembers a stream's volume by (the first one it has).
