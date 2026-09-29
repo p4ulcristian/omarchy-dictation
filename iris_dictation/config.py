@@ -93,6 +93,10 @@ class Config:
         default_factory=lambda: ["discord", "vesktop", "webcord"]
     )
 
+    # Turn other apps' playback down to this share of its volume while the key
+    # is held (0.3 = 30%), and back when you let go. 1 leaves it alone.
+    duck_playback: float = 1.0
+
 
 def load() -> Config:
     cfg = Config()

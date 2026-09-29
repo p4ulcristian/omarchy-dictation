@@ -106,6 +106,7 @@ languages = ["hu", "en"]    # the languages you speak; [] = English
 key = "KEY_CAPSLOCK"        # any evdev KEY_* name
 output = "type"             # or "paste" (clipboard + paste shortcut), "clipboard"
 mute_apps = ["discord", "vesktop", "webcord"]   # add "chromium" for Discord in a browser
+duck_playback = 0.3         # other apps' sound at 30% while you talk; 1 = leave it
 trailing_space = true
 preroll_ms = 0              # >0 keeps the mic open to catch the first syllable
 audio_source = ""           # a PipeWire source name; "" = default mic

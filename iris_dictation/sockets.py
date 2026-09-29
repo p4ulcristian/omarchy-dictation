@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import queue
+import re
 import socket
 import threading
 from collections.abc import Callable
@@ -108,7 +109,12 @@ class ControlServer(threading.Thread):
     def handle(self, cmd: str) -> str:
         verb, _, arg = cmd.partition(" ")
         if verb == "start":
-            self.events.put(("down",))
+            # "start <tag>": a recording another program shows itself (the
+            # levels socket says "recording <tag>"; the waveform pill stays out).
+            tag = arg.strip()
+            if tag and not re.fullmatch(r"[a-z0-9-]{1,32}", tag):
+                return "bad tag: lowercase letters, digits and - only"
+            self.events.put(("down", tag) if tag else ("down",))
             return "ok"
         if verb == "stop":
             self.events.put(("up",))

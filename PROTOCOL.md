@@ -13,6 +13,7 @@ side, read the reply until the daemon closes the connection. `iris-dictation
 | command | reply | what it does |
 |---|---|---|
 | `start` | `ok` | start recording, as if the key went down |
+| `start <tag>` | `ok` | the same, for a program that shows the recording itself: the events say `recording <tag>` and the waveform overlay stays hidden until `idle`. A tag is lowercase letters, digits and `-` |
 | `stop` | `ok` | stop, transcribe, type the text |
 | `stop-return` | the text | stop and transcribe, reply with the text instead of typing it; empty when nothing was heard |
 | `toggle` | `ok` | `start` when idle, `stop` when recording |
@@ -39,6 +40,7 @@ client and never reads anything from them. The waveform overlay
 | line | meaning |
 |---|---|
 | `recording` | recording started |
+| `recording <tag>` | recording started by `start <tag>`: its owner shows it, the waveform overlay doesn't |
 | `level <0..1>` | voice loudness, about every 20 ms while recording (`-54 dB` = 0, `-40 dB` = 1) |
 | `transcribing` | recording stopped, the model is running |
 | `text <text>` | what was heard (newlines replaced by spaces) |

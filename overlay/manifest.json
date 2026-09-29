@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "p4ulcristian.iris-dictation",
   "name": "Dictation waveform",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "author": "p4ulcristian",
   "description": "Live voice waveform while iris-dictation records, then the transcribed text. Driven by iris-dictation's levels.sock.",
   "kinds": [

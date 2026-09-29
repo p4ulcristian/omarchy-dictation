@@ -10,6 +10,8 @@ import qs.Ui
 // live voice level on $XDG_RUNTIME_DIR/iris-dictation/levels.sock (see PROTOCOL.md),
 // one line per event:
 //   recording | level 0.42 | transcribing | text <result> | typing <chars> | nothing | idle
+// A "recording <tag>" belongs to the program that tagged it (Iris's desk card): the pill
+// stays hidden until idle.
 // One look from start to finish: a still dot on the left and three tapered neon
 // sine waves. While recording the waves follow the voice. While waiting
 // (transcribing, then typing the text out) they ease into a slow breath of their
@@ -26,6 +28,7 @@ Item {
   property real clock: 0              // seconds, drives the breath while waiting
   property real typed: 0              // 0..1, typing progress bar
   property bool typing: false
+  property bool quiet: false          // a tagged recording ("recording iris"): its owner shows it
   // Waiting on iris-dictation (transcribing, then typing a long result): the waves
   // breathe on their own instead of following the voice.
   readonly property bool loading: mode === "transcribing" || (mode === "result" && typing)
@@ -48,6 +51,18 @@ Item {
     var space = line.indexOf(" ")
     var verb = space < 0 ? line : line.slice(0, space)
     var arg = space < 0 ? "" : line.slice(space + 1)
+    // A recording another program asked for with a tag, and shows itself: stay out
+    // of it until the daemon is idle again.
+    if (verb === "recording" && arg !== "") {
+      root.quiet = true
+      hideTimer.stop()
+      root.mode = "hidden"
+      return
+    }
+    if (root.quiet) {
+      if (verb === "idle") root.quiet = false
+      return
+    }
     if (verb === "level") {
       root.target = parseFloat(arg) || 0
     } else if (verb === "recording") {

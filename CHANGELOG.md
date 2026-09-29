@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.1.0
+
+Added:
+- `start <tag>` on the control socket: a recording that another program shows
+  itself. The levels socket says `recording <tag>`, and the waveform pill stays
+  hidden until `idle`. Iris's desk card uses it to listen inside its own card.
+- `duck_playback`: other apps' playback goes down to this share of its volume
+  while you hold the key (0.3 = 30%), and back to where it was when you let
+  go. Off by default (1).
+  Streams an app opens while ducked, and apps with no stream left when you
+  let go, come back too: WirePlumber would otherwise keep the ducked volume
+  as the app's own.
+
 ## 3.0.0
 
 The model is now NVIDIA Canary-1B-v2 instead of Whisper large-v3: better on

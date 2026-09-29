@@ -29,7 +29,7 @@ from . import config as cfgmod
 from . import output as out
 from .audio import HotRecorder, Recorder
 from .keys import KeyWatcher
-from .mute import StreamMuter
+from .mute import PlaybackDucker, StreamMuter
 from .sockets import LEVELS_SOCKET, SOCKET_NAME, ControlServer, LevelServer
 from .text import is_silence_phrase, tidy_short
 
@@ -72,6 +72,7 @@ class Daemon:
             self.recorder = Recorder(cfg.sample_rate, cfg.max_seconds,
                                      cfg.audio_source)
         self.muter = StreamMuter(cfg.mute_apps)
+        self.ducker = PlaybackDucker(cfg.duck_playback)
         self.model = None
         self.levels = LevelServer(str(cfgmod.runtime_dir() / LEVELS_SOCKET))
         self.recorder.listener = lambda chunk: self.levels.send(f"level {audio.level(chunk):.3f}")
@@ -109,17 +110,21 @@ class Daemon:
                              sample_rate=self.cfg.sample_rate)
         log.info("warmup %.2fs", time.time() - t0)
 
-    def on_down(self) -> None:
+    def on_down(self, tag: str = "") -> None:
         if self.state != "idle":
             log.debug("ignoring key down while %s", self.state)
             return
-        self.set_state("recording")
+        self.state = "recording"
+        # A tagged recording ("start iris") is shown by whoever asked for it.
+        self.levels.send(f"recording {tag}" if tag else "recording")
         self.muter.mute()
         try:
             self.recorder.start()
+            self.ducker.duck()
         except Exception as exc:
             log.exception("could not start recording")
             self.muter.restore()
+            self.ducker.restore()
             self.set_state("idle")
             self.notify("Dictation error", str(exc))
 
@@ -133,6 +138,7 @@ class Daemon:
             self.set_state("transcribing")
             samples = self.recorder.stop()
             self.muter.restore()
+            self.ducker.restore()
             seconds = len(samples) / self.cfg.sample_rate
             if seconds < self.cfg.min_seconds:
                 log.info("too short (%.2fs), ignored", seconds)
@@ -239,6 +245,7 @@ class Daemon:
             pass
         finally:
             self.muter.restore()
+            self.ducker.restore()
             watcher.stop()
             control.stop()
             if isinstance(self.recorder, HotRecorder):
