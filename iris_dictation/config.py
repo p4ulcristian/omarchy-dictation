@@ -57,6 +57,9 @@ class Config:
     # removes the ~155 ms it otherwise takes parec to start streaming. 0
     # means the microphone is only opened while the key is held.
     preroll_ms: int = 0
+    # Milliseconds to keep recording after the key comes up, so the end of a
+    # word said while letting go is not cut off.
+    tail_ms: int = 200
     max_seconds: int = 120
     min_seconds: float = 0.35
     # Speech models can turn silence into "Thank you." and similar. Such a phrase is
@@ -68,6 +71,23 @@ class Config:
     # field) lose their trailing punctuation and start lowercase: "Firefox."
     # becomes "firefox". Acronyms like "USB" keep their case. 0 = off.
     short_words: int = 3
+
+    # A second pass that fixes misheard names and terms before the text is
+    # typed ("post gress" -> "Postgres"). "claude": Claude through the
+    # Claude Code CLI (its login, no API key), about 1-2 s per clip with
+    # Sonnet, under 1 s with "haiku", which catches fewer; fix_timeout caps
+    # the wait, after which the clip is typed as heard. "" = off. Only typed
+    # results get it: stop-return and transcribe reply with the transcript
+    # as heard, since their callers usually hand it to a language model of
+    # their own.
+    fix: str = ""
+    fix_model: str = "sonnet"
+    fix_timeout: float = 10.0
+    # The Claude Code CLI; "" = claude on PATH.
+    fix_command: str = ""
+    # Names and terms you say that the speech model doesn't know, for the
+    # fix. A short hint helps: "Omarchy (a Linux desktop)".
+    vocabulary: list[str] = field(default_factory=list)
 
     # "type"      -> wtype the characters directly. Works everywhere, about
     #                220 chars/sec. This is the default.

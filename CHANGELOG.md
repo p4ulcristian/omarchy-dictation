@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.2.0
+
+Added:
+- `fix = "claude"` and `vocabulary`: Claude (Sonnet via the Claude Code CLI,
+  no API key) fixes misheard names and terms before the text is typed, about
+  1-2 s per clip. Canary turns names it doesn't know into sound-alikes
+  ("buyer guard" for WireGuard). Off by default. `stop-return` and
+  `transcribe` still reply with the transcript as heard.
+- `tail_ms` (200): recording goes on this long after the key comes up, so a
+  word said while letting go isn't cut off.
+
+Changed:
+- Results are fixed and typed on their own thread, one after another, so a
+  new press records at once instead of being ignored until the last result
+  is typed. `status` says `transcribing` until the last one is typed.
+
 ## 3.1.1
 
 Fixed:

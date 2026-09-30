@@ -13,6 +13,11 @@ The program itself is called **iris-dictation**: `iris-dictation`, `iris-dictati
   Tell it which ones you speak (`languages = ["hu", "en"]`): every clip is
   written out in each of them and the version the model is surest of wins,
   so switching language between presses just works.
+- **Knows your names (optional).** Speech models mishear names and jargon
+  ("buyer guard" for WireGuard). Give it your vocabulary and turn on `fix`,
+  and Claude corrects those before the text is typed, using the Claude Code
+  CLI's login: about 1-2 s per clip, and your next press can start while it
+  works.
 - **Launcher-friendly.** Results of up to three words lose their trailing
   full stop and start lowercase, so "Firefox." arrives as `firefox`.
 - **Quiet on calls.** While you hold the key, Discord's microphone stream is
@@ -109,6 +114,9 @@ mute_apps = ["discord", "vesktop", "webcord"]   # add "chromium" for Discord in 
 duck_playback = 0.3         # other apps' sound at 30% while you talk; 1 = leave it
 trailing_space = true
 preroll_ms = 0              # >0 keeps the mic open to catch the first syllable
+tail_ms = 200               # keep recording this long after you let go
+fix = ""                    # "claude": fix misheard names before typing (below)
+vocabulary = []             # the names and terms you say, for the fix
 audio_source = ""           # a PipeWire source name; "" = default mic
 ```
 
@@ -119,6 +127,24 @@ listeners and cut parts of your words out, while the model copes with
 background noise, even a TV, on its own. Your calls keep the filtered mic.
 `pactl list sources short` lists the names; the raw one usually starts with
 `alsa_input.`.
+
+**Names and jargon.** Canary is very good with ordinary words, but it has
+never heard your project names, hosts and tools, and turns them into
+sound-alikes. With `fix = "claude"`, each result goes to Claude (Sonnet,
+through the [Claude Code](https://claude.com/claude-code) CLI, so no API
+key) together with your `vocabulary`, and comes back with only the misheard
+names corrected:
+
+```toml
+fix = "claude"
+vocabulary = ["WireGuard", "Hyprland", "Omarchy (a Linux desktop)"]
+```
+
+It is told to leave everything else alone, never to answer what you said,
+and a reply that isn't the transcript any more is thrown away. If Claude is
+slow (`fix_timeout`, 10 s) or fails, the text is typed as heard. Only typed
+results are fixed; `stop-return` and `transcribe` reply with the transcript
+as heard. `fix_model = "haiku"` is faster (under 1 s) but catches fewer.
 
 ## How it works
 
@@ -134,8 +160,10 @@ A resident daemon owns the microphone, the key and the model:
    (`iris_dictation/languages.py`). This reaches into onnx-asr internals, so
    the version is pinned in `requirements.txt`.
 3. The text is cleaned up: a hallucinated "Thank you." on silent
-   clips is dropped, and short results are tidied. Then `wtype` types it into
-   the focused window. If typing fails, it goes on the clipboard with a
+   clips is dropped, misheard names are fixed if `fix` is on, and short
+   results are tidied. Then `wtype` types it into the focused window. Fixing
+   and typing run on their own thread, in order, so the next press records
+   right away. If typing fails, it goes on the clipboard with a
    notification, so a transcription is never lost.
 
 The waveform overlay listens on `$XDG_RUNTIME_DIR/iris-dictation/levels.sock`, one

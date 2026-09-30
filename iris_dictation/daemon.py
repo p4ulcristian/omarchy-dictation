@@ -18,6 +18,7 @@ import queue
 import signal
 import subprocess
 import sys
+import threading
 import time
 import wave
 
@@ -28,6 +29,7 @@ from . import audio, languages
 from . import config as cfgmod
 from . import output as out
 from .audio import HotRecorder, Recorder
+from .fix import Fixer
 from .keys import KeyWatcher
 from .mute import PlaybackDucker, StreamMuter
 from .sockets import LEVELS_SOCKET, SOCKET_NAME, ControlServer, LevelServer
@@ -76,6 +78,17 @@ class Daemon:
         self.model = None
         self.levels = LevelServer(str(cfgmod.runtime_dir() / LEVELS_SOCKET))
         self.recorder.listener = lambda chunk: self.levels.send(f"level {audio.level(chunk):.3f}")
+        self.fixer = None
+        if cfg.fix == "claude":
+            self.fixer = Fixer(cfg.vocabulary, cfg.fix_model, cfg.fix_timeout, cfg.fix_command)
+        elif cfg.fix:
+            log.warning("unknown fix %r, typing results as heard", cfg.fix)
+        # Results to type are fixed and typed one after another on a worker
+        # thread, so the next press can record in the meantime. run() starts
+        # it; without it (the tests) they are handled in place.
+        self.lock = threading.Lock()
+        self.jobs: queue.Queue | None = None
+        self.pending = 0
 
     def notify(self, summary: str, body: str = "", timeout: int = 2000) -> None:
         if self.cfg.notify:
@@ -84,6 +97,18 @@ class Daemon:
     def set_state(self, state: str) -> None:
         self.state = state
         self.levels.send(state)
+
+    def settle(self) -> None:
+        """Idle, unless a recording runs or results are still being typed."""
+        with self.lock:
+            if self.state != "recording" and not self.pending:
+                self.set_state("idle")
+
+    def show(self, line: str) -> None:
+        """An overlay line about a result, held back while the next
+        recording already shows its waveform."""
+        if self.state != "recording":
+            self.levels.send(line)
 
     def load_model(self) -> None:
         import onnx_asr
@@ -111,10 +136,11 @@ class Daemon:
         log.info("warmup %.2fs", time.time() - t0)
 
     def on_down(self, tag: str = "") -> None:
-        if self.state != "idle":
-            log.debug("ignoring key down while %s", self.state)
-            return
-        self.state = "recording"
+        with self.lock:
+            if self.state == "recording":
+                log.debug("ignoring key down while recording")
+                return
+            self.state = "recording"
         # A tagged recording ("start iris") is shown by whoever asked for it.
         self.levels.send(f"recording {tag}" if tag else "recording")
         self.muter.mute()
@@ -125,7 +151,9 @@ class Daemon:
             log.exception("could not start recording")
             self.muter.restore()
             self.ducker.restore()
-            self.set_state("idle")
+            with self.lock:
+                self.state = "transcribing"
+            self.settle()
             self.notify("Dictation error", str(exc))
 
     def on_up(self, box: queue.Queue | None = None) -> None:
@@ -135,14 +163,17 @@ class Daemon:
         if self.state != "recording":
             log.debug("ignoring key up while %s", self.state)
         else:
-            self.set_state("transcribing")
+            if self.cfg.tail_ms > 0:
+                time.sleep(self.cfg.tail_ms / 1000)
+            with self.lock:
+                self.set_state("transcribing")
             samples = self.recorder.stop()
             self.muter.restore()
             self.ducker.restore()
             seconds = len(samples) / self.cfg.sample_rate
             if seconds < self.cfg.min_seconds:
                 log.info("too short (%.2fs), ignored", seconds)
-                self.set_state("idle")
+                self.settle()
             else:
                 text = self.finish(samples, self.cfg.sample_rate, type_it=box is None)
         if box:
@@ -158,19 +189,20 @@ class Daemon:
             log.warning("cannot read %s: %s", path, exc)
             box.put("")
             return
-        self.set_state("transcribing")
+        with self.lock:
+            self.set_state("transcribing")
         box.put(self.finish(audio.to_float(raw), rate, type_it=False))
 
     def finish(self, samples: np.ndarray, rate: int, type_it: bool) -> str:
-        """Transcribe, clean up, optionally type. Returns the text ("" for
-        nothing heard) and always leaves the daemon idle."""
+        """Transcribe and clean up. Text to type goes on to type_result();
+        otherwise it is returned ("" for nothing heard)."""
         seconds = len(samples) / rate
         t0 = time.time()
         try:
             text = self.recognize(samples, rate)
         except Exception as exc:
             log.exception("transcription failed")
-            self.set_state("idle")
+            self.settle()
             self.notify("Dictation error", str(exc), timeout=4000)
             return ""
         peak = audio.loudest_rms(samples)
@@ -180,16 +212,39 @@ class Daemon:
         elapsed = time.time() - t0
         log.info("%.1fs audio (peak rms %.4f) -> %.2fs infer (rtf %.3f): %r",
                  seconds, peak, elapsed, elapsed / max(seconds, 0.01), text)
+        if type_it and text:
+            with self.lock:
+                self.pending += 1
+            if self.jobs is None:
+                self.type_result(text)
+            else:
+                self.jobs.put(text)
+            return text
         text = tidy_short(text, self.cfg.short_words)
-        if not text:
-            self.levels.send("nothing")
-            self.set_state("idle")
-            return ""
-        self.levels.send(f"text {text}")
-        if type_it:
-            self.deliver(text)
-        self.set_state("idle")
+        self.show(f"text {text}" if text else "nothing")
+        self.settle()
         return text
+
+    def type_result(self, text: str) -> None:
+        """Fix, tidy and type one result, then settle."""
+        try:
+            if self.fixer:
+                text = self.fixer.fix(text)
+            text = tidy_short(text, self.cfg.short_words)
+            self.show(f"text {text}" if text else "nothing")
+            if text:
+                self.deliver(text)
+        except Exception as exc:
+            log.exception("typing failed")
+            self.notify("Dictation error", str(exc), timeout=4000)
+        finally:
+            with self.lock:
+                self.pending -= 1
+            self.settle()
+
+    def type_results(self) -> None:
+        while True:
+            self.type_result(self.jobs.get())
 
     def recognize(self, samples: np.ndarray, rate: int) -> str:
         # Canary is trained on clips up to 40 s; a longer recording goes in pieces.
@@ -201,7 +256,7 @@ class Daemon:
         payload = text + (" " if self.cfg.trailing_space else "")
         # Typing a long result takes seconds (wtype, ~220 chars/s); the overlay
         # shows a progress bar for it.
-        self.levels.send(f"typing {len(payload) if self.cfg.output == 'type' else 0}")
+        self.show(f"typing {len(payload) if self.cfg.output == 'type' else 0}")
         method = out.deliver(payload, self.cfg.output, self.cfg.output_fallback)
         if method == "clipboard" and self.cfg.output != "clipboard":
             self.notify("Dictation: on clipboard", "Could not type it, press ctrl+v", timeout=4000)
@@ -231,6 +286,12 @@ class Daemon:
             log.info("microphone held open for %d ms of pre-roll",
                      self.cfg.preroll_ms)
 
+        self.jobs = queue.Queue()
+        threading.Thread(target=self.type_results, daemon=True).start()
+        if self.fixer:
+            self.fixer.start()
+            log.info("fix: %s, %d vocabulary terms", self.cfg.fix_model, len(self.cfg.vocabulary))
+
         self.set_state("idle")
         log.info("ready, hold %s to dictate", self.cfg.key)
 
@@ -250,6 +311,8 @@ class Daemon:
             control.stop()
             if isinstance(self.recorder, HotRecorder):
                 self.recorder.close()
+            if self.fixer:
+                self.fixer.close()
         return 0
 
 

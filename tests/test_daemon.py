@@ -36,7 +36,7 @@ def make(monkeypatch, tmp_path):
     monkeypatch.setattr(daemon.out, "deliver", lambda text, *a: typed.append(text) or "type")
 
     def build(text="This is a test.", seconds=2.0, amplitude=0.1):
-        d = daemon.Daemon(config.Config(mute_apps=[]))
+        d = daemon.Daemon(config.Config(mute_apps=[], tail_ms=0))
         d.recorder = FakeRecorder(seconds, amplitude)
         d.model = FakeModel(text)
         sent = []
@@ -92,3 +92,44 @@ def test_thank_you_said_out_loud_is_kept(make):
     d.on_down()
     d.on_up()
     assert typed == ["thank you "]
+
+
+class FakeFixer:
+    def fix(self, text):
+        return text.replace("post gress", "Postgres")
+
+
+def test_typed_results_are_fixed(make):
+    d, typed, sent = make(text="Please move it to post gress.")
+    d.fixer = FakeFixer()
+    d.on_down()
+    d.on_up()
+    assert typed == ["Please move it to Postgres. "]
+    assert "text Please move it to Postgres." in sent
+
+
+def test_stop_return_is_not_fixed(make):
+    d, _, _ = make(text="Please move it to post gress.")
+    d.fixer = FakeFixer()
+    box = queue.Queue()
+    d.on_down()
+    d.on_up(box)
+    assert box.get_nowait() == "Please move it to post gress."
+
+
+def test_next_press_records_while_the_last_result_waits(make):
+    d, typed, sent = make()
+    d.jobs = queue.Queue()               # a worker that hasn't got to it yet
+    d.on_down()
+    d.on_up()
+    assert d.state == "transcribing"
+    d.on_down()
+    assert d.state == "recording"
+    d.type_result(d.jobs.get_nowait())   # typed while recording
+    assert typed == ["This is a test. "]
+    assert d.state == "recording"
+    assert sent[-1] == "recording"       # the waveform isn't interrupted
+    d.on_up()
+    d.type_result(d.jobs.get_nowait())
+    assert typed == ["This is a test. ", "This is a test. "]
+    assert d.state == "idle"
