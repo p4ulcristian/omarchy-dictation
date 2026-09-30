@@ -8,7 +8,7 @@ from __future__ import annotations
 SILENCE_PHRASES = {
     "thank you", "thanks", "thank you very much", "thanks for watching",
     "thank you for watching", "thanks for watching and see you next time", "bye",
-    "you", "köszönöm", "köszönöm szépen", "köszönöm a figyelmet",
+    "you", "yeah", "köszönöm", "köszönöm szépen", "köszönöm a figyelmet",
 }
 
 

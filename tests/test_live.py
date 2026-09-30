@@ -13,7 +13,7 @@ CLIPS = Path(__file__).parent.parent / "testwav"
 EXPECTED = {
     "16k_fleurs_en_0.wav": ["thousands", "miles", "satellite"],
     "16k_fleurs_en_2.wav": ["fund", "global warming"],
-    "16k_piper_hu.wav": ["teszt", "magyarul"],
+    "16k_piper_hu.wav": ["magyarul", "működik"],
 }
 
 

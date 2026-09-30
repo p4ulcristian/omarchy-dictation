@@ -13,7 +13,6 @@ Everything that happens (key, control socket) arrives as an event tuple
 from __future__ import annotations
 
 import logging
-import os
 import queue
 import signal
 import subprocess
@@ -25,7 +24,7 @@ import wave
 import evdev
 import numpy as np
 
-from . import audio, languages
+from . import audio
 from . import config as cfgmod
 from . import output as out
 from .audio import HotRecorder, Recorder
@@ -38,8 +37,6 @@ from .text import is_silence_phrase, tidy_short
 log = logging.getLogger("iris-dictation")
 
 NOTIFY_TAG = "iris-dictation-status"
-# Its files are in cfg.model_path; the name tells onnx-asr how to load them.
-MODEL = "nemo-canary-1b-v2"
 
 
 def notify(summary: str, body: str = "", timeout: int = 2000) -> None:
@@ -111,29 +108,9 @@ class Daemon:
             self.levels.send(line)
 
     def load_model(self) -> None:
-        import onnx_asr
-        import onnxruntime as ort
+        from . import model
 
-        t0 = time.time()
-        # CUDA and cuDNN come from pip wheels, not the system. Load them
-        # before the first session so onnxruntime finds them.
-        ort.preload_dlls()
-        self.model = onnx_asr.load_model(
-            MODEL, path=os.path.expanduser(self.cfg.model_path),
-            # Grow the memory pool only by what is asked for, not in doubling
-            # steps: about 300 MB less VRAM held, same speed.
-            providers=[("CUDAExecutionProvider", {"arena_extend_strategy": "kSameAsRequested"}),
-                       "CPUExecutionProvider"])
-        log.info("model loaded in %.2fs", time.time() - t0)
-        langs = self.cfg.languages or ["en"]
-        languages.install(self.model, langs)
-        log.info("languages: %s", ", ".join(langs))
-
-        # Warm up so the first real press does not pay for lazy allocation.
-        t0 = time.time()
-        self.model.recognize(np.zeros(self.cfg.sample_rate, dtype=np.float32),
-                             sample_rate=self.cfg.sample_rate)
-        log.info("warmup %.2fs", time.time() - t0)
+        self.model = model.load(self.cfg.model_path, self.cfg.languages, self.cfg.vocabulary)
 
     def on_down(self, tag: str = "") -> None:
         with self.lock:
@@ -247,7 +224,8 @@ class Daemon:
             self.type_result(self.jobs.get())
 
     def recognize(self, samples: np.ndarray, rate: int) -> str:
-        # Canary is trained on clips up to 40 s; a longer recording goes in pieces.
+        # A long recording goes in pieces of under 30 s, cut between words,
+        # which keeps the prompt inside the model's fixed-size cache.
         texts = (self.model.recognize(piece, sample_rate=rate) or ""
                  for piece in audio.split_at_pauses(samples, rate))
         return " ".join(t.strip() for t in texts if t.strip())

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install iris-dictation for the current user. Safe to run again.
-# Needs an NVIDIA GPU with about 7 GB of free VRAM.
+# Needs an NVIDIA GPU with about 5 GB of free VRAM.
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 SRC=$PWD

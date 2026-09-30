@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.0.0
+
+Changed:
+- The model is Qwen3-ASR-1.7B instead of Canary-1B-v2: the best open model
+  for English on the Open ASR Leaderboard (4.31% mean WER against 5.71%;
+  3.50% against 4.97% on people talking into a microphone). It runs on
+  transformers and PyTorch instead of onnxruntime, in ~4.5 GB of VRAM
+  instead of ~5.4 GB. About 0.1 s for a short phrase, 0.35 s for a 7 s
+  sentence (Canary: 0.1-0.3 s). Startup compiles the decoder: ~12 s, ~30 s
+  the very first time. Run install.sh again, or
+  bin/iris-dictation-fetch-model, for the new model files.
+- `languages`: with more than one, the model tells them apart itself
+  instead of writing each clip out once per language. It knows 30
+  languages; its Hungarian is weaker than Canary's.
+- `vocabulary` also goes to the model as context, so it leans towards
+  those names without the `fix` pass.
+
 ## 3.2.0
 
 Added:

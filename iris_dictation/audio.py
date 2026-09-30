@@ -59,7 +59,7 @@ def split_at_pauses(samples: np.ndarray, rate: int, max_seconds: float = 28.0,
                     search_seconds: float = 6.0, window: int = 480) -> list[np.ndarray]:
     """Cut a recording into pieces of at most `max_seconds`, each cut at the
     quietest 30 ms in the last `search_seconds` before the limit, so it falls
-    between words. Canary is trained on clips of up to 40 s."""
+    between words."""
     pieces, start, limit = [], 0, int(max_seconds * rate)
     while len(samples) - start > limit:
         hi = start + limit

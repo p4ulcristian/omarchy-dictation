@@ -1,24 +1,19 @@
 #!/usr/bin/env bash
-# Download the speech model, NVIDIA Canary-1B-v2 in ONNX, into
-# ~/.local/share/iris-dictation/models/canary-1b-v2.
-#
-# The files go straight into that plain directory, not the Hugging Face
-# cache: onnxruntime will not follow the cache's symlinks to the weights.
+# Download the speech model, Qwen3-ASR-1.7B (3.9 GB), into
+# ~/.local/share/iris-dictation/models/qwen3-asr-1.7b.
 set -euo pipefail
 cd "$(dirname "$(dirname "$(readlink -f "$0")")")"
 
-REPO="istupakov/canary-1b-v2-onnx"
-DEST="$HOME/.local/share/iris-dictation/models/canary-1b-v2"
-FILES="encoder-model.onnx encoder-model.onnx.data decoder-model.onnx
-       vocab.txt config.json"
+REPO="Qwen/Qwen3-ASR-1.7B-hf"
+DEST="$HOME/.local/share/iris-dictation/models/qwen3-asr-1.7b"
 
 echo "Fetching $REPO into $DEST ..."
 mkdir -p "$DEST"
-.venv/bin/python - "$REPO" "$DEST" $FILES <<'PY'
+.venv/bin/python - "$REPO" "$DEST" <<'PY'
 import sys
 from huggingface_hub import snapshot_download
-repo, dest, *files = sys.argv[1:]
-snapshot_download(repo, allow_patterns=files, local_dir=dest)
+repo, dest = sys.argv[1:]
+snapshot_download(repo, allow_patterns=["*.json", "*.jinja", "*.safetensors"], local_dir=dest)
 PY
 echo "Model installed in $DEST"
 du -sh "$DEST"

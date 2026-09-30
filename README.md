@@ -6,18 +6,20 @@ cloud, no account.
 
 The program itself is called **iris-dictation**: `iris-dictation`, `iris-dictation.service`.
 
-- **Fast.** NVIDIA Canary-1B-v2 on the GPU transcribes a short phrase in
-  about 0.1 s and a long sentence in about 0.3 s, measured on an RTX 5060 Ti. The
-  model stays loaded, so a key press never waits for it.
-- **Your languages, never translated.** Canary knows 25 European languages.
-  Tell it which ones you speak (`languages = ["hu", "en"]`): every clip is
-  written out in each of them and the version the model is surest of wins,
-  so switching language between presses just works.
+- **Accurate.** Qwen3-ASR-1.7B, the best open model for English on the
+  [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard)
+  (September 2026). On an RTX 5060 Ti it transcribes a short phrase in about
+  0.1 s and a 7 s sentence in about 0.35 s. The model stays loaded, so a key
+  press never waits for it.
+- **Your languages, never translated.** Qwen3-ASR knows 30 languages and
+  tells them apart itself: list the ones you speak
+  (`languages = ["hu", "en"]`) and switch between presses.
 - **Knows your names (optional).** Speech models mishear names and jargon
-  ("buyer guard" for WireGuard). Give it your vocabulary and turn on `fix`,
-  and Claude corrects those before the text is typed, using the Claude Code
-  CLI's login: about 1-2 s per clip, and your next press can start while it
-  works.
+  ("buyer guard" for WireGuard). List them in `vocabulary` and the model
+  leans towards them, at no cost in time. For the ones it still misses,
+  `fix` has Claude correct them before the text is typed, using the Claude
+  Code CLI's login: about 1-2 s per clip, and your next press can start while
+  it works.
 - **Launcher-friendly.** Results of up to three words lose their trailing
   full stop and start lowercase, so "Firefox." arrives as `firefox`.
 - **Quiet on calls.** While you hold the key, Discord's microphone stream is
@@ -32,7 +34,7 @@ The program itself is called **iris-dictation**: `iris-dictation`, `iris-dictati
 ## Requirements
 
 - Hyprland (Omarchy for the waveform overlay), PipeWire.
-- An NVIDIA GPU with about 5 GB of free VRAM (6.5 GB at peak).
+- An NVIDIA GPU with about 5 GB of free VRAM.
 - `uv`, `wtype`, `wl-clipboard`, `libpulse` (for `parec`/`pactl`),
   `libnotify`:
 
@@ -48,7 +50,7 @@ git clone https://github.com/p4ulcristian/omarchy-dictation ~/.local/share/omarc
 ```
 
 The installer creates a Python environment inside the clone, downloads the
-model (about 3.7 GB) to `~/.local/share/iris-dictation/models/`, links
+model (about 3.9 GB) to `~/.local/share/iris-dictation/models/`, links
 `iris-dictation` and friends into `~/.local/bin`, adds the waveform overlay to
 the Omarchy shell if there is one, and starts the `iris-dictation` systemd user
 service.
@@ -116,7 +118,7 @@ trailing_space = true
 preroll_ms = 0              # >0 keeps the mic open to catch the first syllable
 tail_ms = 200               # keep recording this long after you let go
 fix = ""                    # "claude": fix misheard names before typing (below)
-vocabulary = []             # the names and terms you say, for the fix
+vocabulary = []             # the names and terms you say
 audio_source = ""           # a PipeWire source name; "" = default mic
 ```
 
@@ -128,17 +130,19 @@ background noise, even a TV, on its own. Your calls keep the filtered mic.
 `pactl list sources short` lists the names; the raw one usually starts with
 `alsa_input.`.
 
-**Names and jargon.** Canary is very good with ordinary words, but it has
-never heard your project names, hosts and tools, and turns them into
-sound-alikes. With `fix = "claude"`, each result goes to Claude (Sonnet,
-through the [Claude Code](https://claude.com/claude-code) CLI, so no API
-key) together with your `vocabulary`, and comes back with only the misheard
-names corrected:
+**Names and jargon.** The model is very good with ordinary words, but it
+has never heard your project names, hosts and tools, and turns them into
+sound-alikes. Put them in `vocabulary`: it goes to the model as context,
+which it leans towards, and costs no time:
 
 ```toml
-fix = "claude"
 vocabulary = ["WireGuard", "Hyprland", "Omarchy (a Linux desktop)"]
 ```
+
+For names it still gets wrong, `fix = "claude"` sends each result to Claude
+(Sonnet, through the [Claude Code](https://claude.com/claude-code) CLI, so
+no API key) together with your `vocabulary`, and it comes back with only the
+misheard names corrected.
 
 It is told to leave everything else alone, never to answer what you said,
 and a reply that isn't the transcript any more is thrown away. If Claude is
@@ -153,12 +157,12 @@ A resident daemon owns the microphone, the key and the model:
 1. **Key down:** `parec` starts recording from PipeWire, and apps in
    `mute_apps` get their capture stream muted. The mic itself stays on for
    iris-dictation.
-2. **Key up:** the clip goes through Canary (onnxruntime, CUDA). Canary has
-   no language detection and translates when told the wrong language, so the
-   audio is encoded once and decoded once per entry in `languages`; the
-   decode with the highest mean token log-probability is kept
-   (`iris_dictation/languages.py`). This reaches into onnx-asr internals, so
-   the version is pinned in `requirements.txt`.
+2. **Key up:** the clip goes through Qwen3-ASR (transformers, PyTorch,
+   CUDA). It is an audio encoder in front of a small language model that
+   writes the text a token at a time; a fixed-size cache and CUDA graphs
+   (`torch.compile`, done once at startup) make that about 15 ms a token
+   (`iris_dictation/model.py`). A recording longer than 28 s is cut at the
+   quietest moment between words and goes in pieces.
 3. The text is cleaned up: a hallucinated "Thank you." on silent
    clips is dropped, misheard names are fixed if `fix` is on, and short
    results are tidied. Then `wtype` types it into the focused window. Fixing

@@ -26,18 +26,15 @@ def runtime_dir() -> Path:
 
 @dataclass
 class Config:
-    # The model is NVIDIA Canary-1B-v2 on an NVIDIA GPU: about 0.1-0.3 s per
-    # clip and ~6.5 GB of VRAM while the daemon runs. This is the directory
-    # holding its ONNX files, filled by bin/iris-dictation-fetch-model. (A
-    # plain directory, because onnxruntime will not follow the Hugging Face
-    # cache's symlinks to the weights.)
-    model_path: str = "~/.local/share/iris-dictation/models/canary-1b-v2"
-    # The languages you speak, as codes, e.g. ["hu", "en"]. Canary cannot
-    # detect the language, so each clip is written out in every one of these
-    # and the most confident version wins; each extra language costs one more
-    # decoder pass. One entry forces that language. Empty means English.
-    # Canary knows 25 European languages: bg cs da de el en es et fi fr hr hu
-    # it lt lv mt nl pl pt ro ru sk sl sv uk.
+    # The model is Qwen3-ASR-1.7B on an NVIDIA GPU: about 0.1-0.7 s per clip
+    # and ~4.6 GB of VRAM while the daemon runs. This is the directory holding
+    # its files, filled by bin/iris-dictation-fetch-model.
+    model_path: str = "~/.local/share/iris-dictation/models/qwen3-asr-1.7b"
+    # The languages you speak, as codes, e.g. ["hu", "en"]. One entry forces
+    # that language; with several the model tells them apart itself. It
+    # writes down what was said, never a translation. Empty means English.
+    # Qwen3-ASR knows 30 languages: ar cs da de el en es fa fi fil fr hi hu
+    # id it ja ko mk ms nl pl pt ro ru sv th tr vi yue zh.
     languages: list[str] = field(default_factory=list)
 
     # Key to hold, as an evdev KEY_* name.
@@ -85,8 +82,9 @@ class Config:
     fix_timeout: float = 10.0
     # The Claude Code CLI; "" = claude on PATH.
     fix_command: str = ""
-    # Names and terms you say that the speech model doesn't know, for the
-    # fix. A short hint helps: "Omarchy (a Linux desktop)".
+    # Names and terms you say that the speech model doesn't know. They go to
+    # the model as context, which it leans towards, at no cost in time, and
+    # to the fix if that is on. A short hint helps: "Omarchy (a Linux desktop)".
     vocabulary: list[str] = field(default_factory=list)
 
     # "type"      -> wtype the characters directly. Works everywhere, about

@@ -1,6 +1,6 @@
-# Installed into .venv by install.sh. onnxruntime-gpu brings its own CUDA and
-# cuDNN from pip; nothing system wide.
-onnx-asr[hub]==0.12.0
-onnxruntime-gpu[cuda,cudnn]==1.30.0
+# Installed into .venv by install.sh. torch brings its own CUDA and cuDNN
+# from pip; nothing system wide.
+torch==2.14.0
+transformers==5.17.0
 evdev==2.0.0
 numpy==2.5.3

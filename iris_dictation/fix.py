@@ -1,8 +1,9 @@
 """A second pass over typed dictation: Claude fixes what the speech model
 misheard, mostly names and technical terms.
 
-Canary is very good with ordinary words and has no way to learn names:
-"Postgres" comes out as "post gress", "WireGuard" as "buyer guard". A language
+The speech model is very good with ordinary words, and leans towards the
+vocabulary it is given, but still turns some names into sound-alikes:
+"Postgres" as "post gress", "WireGuard" as "buyer guard". A language
 model that knows your vocabulary and what you said just before can tell which
 sound-alike you meant.
 
