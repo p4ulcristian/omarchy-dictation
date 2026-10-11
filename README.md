@@ -120,7 +120,22 @@ tail_ms = 200               # keep recording this long after you let go
 fix = ""                    # "claude": fix misheard names before typing (below)
 vocabulary = []             # the names and terms you say
 audio_source = ""           # a PipeWire source name; "" = default mic
+audio_sources = []          # or several, in order of preference (below)
 ```
+
+**Several microphones.** List them in `audio_sources`, the one you prefer
+first:
+
+```toml
+audio_sources = ["iphone-mic", "alsa_input.usb-My_Headset-00.mono-fallback"]
+```
+
+They all record while you hold the key, and the first one that picked up
+any sound is used. A headset that is switched off or a phone that is not
+streaming delivers pure silence, so it is passed over, and the overlay
+names the microphone in use. A listed microphone that is live but far away
+still wins over the ones after it. `""` in the list stands for the default
+mic.
 
 **Noise-suppressed mic?** If your default input is a filtered virtual mic
 (EasyEffects, RNNoise, PipeWire echo-cancel and the like), point

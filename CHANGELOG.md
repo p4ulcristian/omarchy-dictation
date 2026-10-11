@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.1.0
+
+Added:
+- `audio_sources`: several microphones in order of preference. They all
+  record while the key is held and the first one that picked up any sound
+  is used, so a headset that is off or a phone that is not streaming is
+  passed over. The overlay names the microphone in use (`mic <name>` on
+  the events socket). A listed microphone is never swapped for the default
+  one when it goes away, and is picked up again when it comes back.
+
 ## 4.0.0
 
 Changed:

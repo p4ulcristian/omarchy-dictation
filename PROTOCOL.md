@@ -41,6 +41,7 @@ client and never reads anything from them. The waveform overlay
 |---|---|
 | `recording` | recording started |
 | `recording <tag>` | recording started by `start <tag>`: its owner shows it, the waveform overlay doesn't |
+| `mic <name>` | with several microphones configured (`audio_sources`): the one this recording uses, by its description. Sent when the first sound arrives, and again if a preferred microphone picks up sound later |
 | `level <0..1>` | voice loudness, about every 20 ms while recording (`-54 dB` = 0, `-40 dB` = 1) |
 | `transcribing` | recording stopped, the model is running |
 | `text <text>` | what was heard (newlines replaced by spaces) |
@@ -48,6 +49,6 @@ client and never reads anything from them. The waveform overlay
 | `typing <n>` | typing `<n>` characters now, at about 220 per second; `0` means an instant paste |
 | `idle` | done, ready for the next press |
 
-A normal dictation is `recording`, `level …` (many), `transcribing`,
+A normal dictation is `recording`, `mic …` (with several microphones), `level …` (many), `transcribing`,
 `text …`, `typing …`, `idle`. A `stop-return` or `transcribe` has no
 `typing` line. Clients should ignore lines they don't know.

@@ -27,7 +27,7 @@ import numpy as np
 from . import audio
 from . import config as cfgmod
 from . import output as out
-from .audio import HotRecorder, Recorder
+from .audio import HotRecorder, Mics, Recorder
 from .fix import Fixer
 from .keys import KeyWatcher
 from .mute import PlaybackDucker, StreamMuter
@@ -64,12 +64,21 @@ class Daemon:
         self.cfg = cfg
         self.events: queue.Queue = queue.Queue()
         self.state = "idle"
-        if cfg.preroll_ms > 0:
-            self.recorder = HotRecorder(cfg.sample_rate, cfg.max_seconds,
-                                        cfg.audio_source, cfg.preroll_ms)
+        sources = cfg.audio_sources or [cfg.audio_source]
+        several = len(sources) > 1
+
+        def recorder(source: str) -> HotRecorder | Recorder:
+            if cfg.preroll_ms > 0:
+                return HotRecorder(cfg.sample_rate, cfg.max_seconds, source,
+                                   cfg.preroll_ms, exact=several)
+            return Recorder(cfg.sample_rate, cfg.max_seconds, source, exact=several)
+
+        if several:
+            self.recorder = Mics([recorder(source) for source in sources])
+            self.recorder.on_pick = self.on_mic
         else:
-            self.recorder = Recorder(cfg.sample_rate, cfg.max_seconds,
-                                     cfg.audio_source)
+            self.recorder = recorder(sources[0])
+        self.mic_names: dict[str, str] = {}
         self.muter = StreamMuter(cfg.mute_apps)
         self.ducker = PlaybackDucker(cfg.duck_playback)
         self.model = None
@@ -106,6 +115,12 @@ class Daemon:
         recording already shows its waveform."""
         if self.state != "recording":
             self.levels.send(line)
+
+    def on_mic(self, source: str) -> None:
+        """With several microphones: say which one this recording uses."""
+        if source not in self.mic_names:
+            self.mic_names[source] = audio.sources().get(source, source) or "default microphone"
+        self.levels.send(f"mic {self.mic_names[source]}")
 
     def load_model(self) -> None:
         from . import model
@@ -259,7 +274,7 @@ class Daemon:
         control.start()
         self.levels.start()
 
-        if isinstance(self.recorder, HotRecorder):
+        if self.cfg.preroll_ms > 0:
             self.recorder.open()
             log.info("microphone held open for %d ms of pre-roll",
                      self.cfg.preroll_ms)
@@ -287,7 +302,7 @@ class Daemon:
             self.ducker.restore()
             watcher.stop()
             control.stop()
-            if isinstance(self.recorder, HotRecorder):
+            if self.cfg.preroll_ms > 0:
                 self.recorder.close()
             if self.fixer:
                 self.fixer.close()

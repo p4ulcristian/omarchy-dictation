@@ -9,7 +9,7 @@ import qs.Ui
 // Dictation overlay for the Omarchy shell. iris-dictation broadcasts its state and the
 // live voice level on $XDG_RUNTIME_DIR/iris-dictation/levels.sock (see PROTOCOL.md),
 // one line per event:
-//   recording | level 0.42 | transcribing | text <result> | typing <chars> | nothing | idle
+//   recording | mic <name> | level 0.42 | transcribing | text <result> | typing <chars> | nothing | idle
 // A "recording <tag>" belongs to the program that tagged it (Iris's desk card): the pill
 // stays hidden until idle.
 // One look from start to finish: a still dot on the left and three tapered neon
@@ -22,6 +22,7 @@ Item {
 
   property string mode: "hidden"      // hidden | recording | transcribing | result
   property string result: ""
+  property string mic: ""             // the microphone in use, when iris-dictation has several
   property real target: 0             // latest level from iris-dictation, 0..1
   property real amp: 0                // smoothed level the waves draw with
   property real phase: 0
@@ -68,8 +69,11 @@ Item {
     } else if (verb === "recording") {
       hideTimer.stop()
       root.result = ""
+      root.mic = ""
       root.target = 0
       root.mode = "recording"
+    } else if (verb === "mic") {
+      root.mic = arg
     } else if (verb === "transcribing") {
       root.target = 0
       root.mode = "transcribing"
@@ -254,6 +258,20 @@ Item {
             ctx.restore()
           }
         }
+      }
+
+      // Which microphone is recording, small in the corner.
+      Text {
+        visible: root.mode === "recording" && root.mic !== ""
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: 12
+        anchors.bottomMargin: 6
+        textFormat: Text.PlainText
+        text: root.mic
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+        color: Util.alpha(Color.popups.text, 0.55)
       }
 
       // After transcription: what was heard (or that nothing was).

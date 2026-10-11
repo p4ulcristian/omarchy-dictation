@@ -48,6 +48,11 @@ class Config:
     # If the default is a noise-suppressed virtual mic, use the raw one
     # (alsa_input...): the filters cut out words, the model copes with noise.
     audio_source: str = ""
+    # Several microphones in order of preference, instead of audio_source.
+    # They all record while the key is held and the first one that picked up
+    # any sound is used, so a headset that is off or a phone that is not
+    # streaming is passed over. "" in the list is the PipeWire default input.
+    audio_sources: list[str] = field(default_factory=list)
     sample_rate: int = 16000
     # Milliseconds of audio to keep from before the key went down. Any value
     # above 0 keeps the microphone open for as long as the daemon runs, which

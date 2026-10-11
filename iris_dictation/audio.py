@@ -3,6 +3,9 @@ loudness measures taken from it."""
 
 from __future__ import annotations
 
+import json
+import logging
+import select
 import subprocess
 import threading
 import time
@@ -10,13 +13,40 @@ from collections.abc import Callable
 
 import numpy as np
 
+log = logging.getLogger("iris-dictation")
+
 CHUNK = 4096
+# A microphone that is switched off, or a phone that is not streaming,
+# delivers exact zeros. Anything above this (one 16-bit step) picked up sound.
+DEAD_RMS = 3e-5
+# A stream that lost its microphone goes quiet without ending. After this
+# many seconds with nothing, HotRecorder opens it again.
+STALL_SECONDS = 3
 # Called with each raw s16le chunk while a recording is running (about every
 # 20 ms, as parec delivers them), for the live level meter.
 Listener = Callable[[bytes], None]
 
 
-def _parec(sample_rate: int, source: str) -> subprocess.Popen:
+_sources: tuple[float, dict[str, str]] = (float("-inf"), {})
+
+
+def sources() -> dict[str, str]:
+    """PipeWire's sources right now, name -> description. Asked at most once
+    a second."""
+    global _sources
+    at, known = _sources
+    if time.monotonic() - at > 1:
+        try:
+            out = subprocess.run(["pactl", "-f", "json", "list", "sources"],
+                                 capture_output=True, text=True, timeout=2).stdout
+            known = {s["name"]: s.get("description") or s["name"] for s in json.loads(out)}
+        except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
+            known = {}
+        _sources = (time.monotonic(), known)
+    return known
+
+
+def _parec(sample_rate: int, source: str, exact: bool = False) -> subprocess.Popen:
     cmd = [
         "parec",
         "--format=s16le",
@@ -27,7 +57,12 @@ def _parec(sample_rate: int, source: str) -> subprocess.Popen:
     ]
     if source:
         cmd.append(f"--device={source}")
-    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if exact:
+        # Without this PipeWire moves the stream to the default microphone
+        # when its own goes away.
+        cmd.append("--property=node.dont-reconnect=true")
+    # Unbuffered: a read returns what parec has, not a full CHUNK.
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
 
 
 def _end(proc: subprocess.Popen | None) -> None:
@@ -53,6 +88,11 @@ def level(chunk: bytes) -> float:
         return 0.0
     db = 20 * np.log10(float(np.sqrt(np.mean(x * x))) + 1e-9)
     return min(1.0, max(0.0, (db + 54) / 14))
+
+
+def rms(chunk: bytes) -> float:
+    x = to_float(chunk)
+    return float(np.sqrt(np.mean(x * x))) if len(x) else 0.0
 
 
 def split_at_pauses(samples: np.ndarray, rate: int, max_seconds: float = 28.0,
@@ -87,11 +127,16 @@ class Recorder:
     parec is spawned on start and killed on stop, so the microphone is only
     open while the key is held. Spawn cost is a few tens of milliseconds,
     which lands well inside the gap between pressing a key and speaking.
+
+    `exact` records from `source` or not at all: without it PipeWire falls
+    back to the default microphone when the source is missing.
     """
 
-    def __init__(self, sample_rate: int, max_seconds: int, source: str = "") -> None:
+    def __init__(self, sample_rate: int, max_seconds: int, source: str = "",
+                 exact: bool = False) -> None:
         self.sample_rate = sample_rate
         self.source = source
+        self.exact = exact
         self.max_bytes = sample_rate * 2 * max_seconds
         self._proc: subprocess.Popen | None = None
         self._chunks: list[bytes] = []
@@ -100,7 +145,9 @@ class Recorder:
 
     def start(self) -> None:
         self._chunks = []
-        self._proc = _parec(self.sample_rate, self.source)
+        if self.exact and self.source and self.source not in sources():
+            return
+        self._proc = _parec(self.sample_rate, self.source, self.exact)
         self._thread = threading.Thread(target=self._pump, daemon=True)
         self._thread.start()
 
@@ -109,7 +156,7 @@ class Recorder:
         assert proc is not None and proc.stdout is not None
         total = 0
         while True:
-            data = proc.stdout.read1(CHUNK)   # whatever parec has, not a full CHUNK
+            data = proc.stdout.read(CHUNK)
             if not data:
                 break
             self._chunks.append(data)
@@ -142,13 +189,17 @@ class HotRecorder:
 
     The cost is that the microphone is open the whole time the daemon runs,
     so it is off by default.
+
+    `exact` records from `source` or not at all, as in Recorder, and waits
+    for a source that is missing or went away to come back.
     """
 
     def __init__(self, sample_rate: int, max_seconds: int, source: str = "",
-                 preroll_ms: int = 300) -> None:
+                 preroll_ms: int = 300, exact: bool = False) -> None:
         self.sample_rate = sample_rate
         self.max_bytes = sample_rate * 2 * max_seconds
         self.source = source
+        self.exact = exact
         self.preroll_bytes = int(sample_rate * 2 * preroll_ms / 1000)
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
@@ -160,30 +211,33 @@ class HotRecorder:
 
     def open(self) -> None:
         """Start the persistent capture stream. Call once at daemon start."""
-        if self._proc is not None:
+        if self._thread is not None:
             return
-        self._proc = _parec(self.sample_rate, self.source)
         self._thread = threading.Thread(target=self._pump, daemon=True)
         self._thread.start()
 
     def close(self) -> None:
         self._stop_flag.set()
-        proc, self._proc = self._proc, None
-        _end(proc)
+        _end(self._proc)
 
     def _pump(self) -> None:
         while not self._stop_flag.is_set():
-            proc = self._proc
-            if proc is None or proc.stdout is None:
+            if self.exact and self.source and self.source not in sources():
+                self._stop_flag.wait(STALL_SECONDS)
+                continue
+            proc = self._proc = _parec(self.sample_rate, self.source, self.exact)
+            self._read(proc)
+            # parec died or went quiet, e.g. the device was unplugged. Reopen.
+            _end(proc)
+            self._stop_flag.wait(0.5)
+
+    def _read(self, proc: subprocess.Popen) -> None:
+        assert proc.stdout is not None
+        while not self._stop_flag.is_set():
+            if self.exact and not select.select([proc.stdout], [], [], STALL_SECONDS)[0]:
                 return
-            data = proc.stdout.read1(CHUNK)
+            data = proc.stdout.read(CHUNK)
             if not data:
-                # parec died, e.g. the device was unplugged. Reopen.
-                if self._stop_flag.is_set():
-                    return
-                time.sleep(0.5)
-                self._proc = None
-                self.open()
                 return
             with self._lock:
                 if self._capture is not None:
@@ -208,3 +262,57 @@ class HotRecorder:
             self._capture = None
             self._ring = bytearray()
         return to_float(raw)
+
+
+class Mics:
+    """Several microphones in order of preference, as one recorder.
+
+    All of them record at once, and the first in the list that picked up
+    any sound is the one kept. So a headset that is switched off, or a phone
+    that is not streaming, is passed over without anyone choosing.
+    """
+
+    def __init__(self, recorders: list[Recorder] | list[HotRecorder]) -> None:
+        self.recorders = recorders
+        self.listener: Listener | None = None
+        # Called with the source name when the microphone in use changes
+        # during a recording.
+        self.on_pick: Callable[[str], None] | None = None
+        self._lock = threading.Lock()
+        self._best: int | None = None
+        for i, recorder in enumerate(recorders):
+            recorder.listener = lambda chunk, i=i: self._heard(i, chunk)
+
+    def _heard(self, i: int, chunk: bytes) -> None:
+        with self._lock:
+            picked = (self._best is None or i < self._best) and rms(chunk) > DEAD_RMS
+            if picked:
+                self._best = i
+            best = self._best
+        if picked and self.on_pick:
+            self.on_pick(self.recorders[i].source)
+        if i == best and self.listener:
+            self.listener(chunk)
+
+    def open(self) -> None:
+        for recorder in self.recorders:
+            recorder.open()
+
+    def close(self) -> None:
+        for recorder in self.recorders:
+            recorder.close()
+
+    def start(self) -> None:
+        with self._lock:
+            self._best = None
+        for recorder in self.recorders:
+            recorder.start()
+
+    def stop(self) -> np.ndarray:
+        clips = [recorder.stop() for recorder in self.recorders]
+        with self._lock:
+            best = self._best
+        if best is None:
+            log.info("no microphone picked up any sound")
+            return np.zeros(0, dtype=np.float32)
+        return clips[best]
