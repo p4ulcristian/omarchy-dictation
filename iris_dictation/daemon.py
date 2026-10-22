@@ -181,19 +181,21 @@ class Daemon:
             log.warning("cannot read %s: %s", path, exc)
             box.put("")
             return
-        with self.lock:
-            self.set_state("transcribing")
-        box.put(self.finish(audio.to_float(raw), rate, type_it=False))
+        # Quietly: the overlay's pill and text are for dictation at the desk, not for a file
+        # someone else (Iris's ears, for the phone) asked about.
+        box.put(self.finish(audio.to_float(raw), rate, type_it=False, quiet=True))
 
-    def finish(self, samples: np.ndarray, rate: int, type_it: bool) -> str:
+    def finish(self, samples: np.ndarray, rate: int, type_it: bool, quiet: bool = False) -> str:
         """Transcribe and clean up. Text to type goes on to type_result();
-        otherwise it is returned ("" for nothing heard)."""
+        otherwise it is returned ("" for nothing heard). Quiet: nothing shown on the overlay."""
         seconds = len(samples) / rate
         t0 = time.time()
         try:
             text = self.recognize(samples, rate)
         except Exception as exc:
             log.exception("transcription failed")
+            if quiet:
+                return ""
             self.settle()
             self.notify("Dictation error", str(exc), timeout=4000)
             return ""
@@ -213,6 +215,8 @@ class Daemon:
                 self.jobs.put(text)
             return text
         text = tidy_short(text, self.cfg.short_words)
+        if quiet:
+            return text
         self.show(f"text {text}" if text else "nothing")
         self.settle()
         return text

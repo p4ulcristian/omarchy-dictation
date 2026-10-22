@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.1.1
+
+Changed:
+- `transcribe <path>` is quiet: no overlay state, no text shown. Files sent by
+  other programs (Iris's ears transcribing the phone) no longer pop the pill up
+  at the desk.
+
 ## 4.1.0
 
 Added:
