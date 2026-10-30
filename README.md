@@ -1,16 +1,18 @@
 # omarchy-dictation
 
 Push-to-talk dictation for Hyprland. Hold Caps Lock, speak, let go, and the
-text is typed into whatever window is focused. Everything runs locally: no
-cloud, no account.
+text is typed into whatever window is focused. Everything runs on your own
+machines: no cloud, no account. The speech model runs in
+[iris-listen](https://github.com/p4ulcristian/iris-listen), a service on your
+GPU that other programs can use too.
 
 The program itself is called **iris-dictation**: `iris-dictation`, `iris-dictation.service`.
 
 - **Accurate.** Qwen3-ASR-1.7B, the best open model for English on the
   [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard)
-  (September 2026). On an RTX 5060 Ti it transcribes a short phrase in about
-  0.1 s and a 7 s sentence in about 0.35 s. The model stays loaded, so a key
-  press never waits for it.
+  (September 2026), in iris-listen. On an RTX 5060 Ti it transcribes a short
+  phrase in about 0.1 s and a 7 s sentence in about 0.35 s. The model stays
+  loaded there, so a key press never waits for it.
 - **Your languages, never translated.** Qwen3-ASR knows 30 languages and
   tells them apart itself: list the ones you speak
   (`languages = ["hu", "en"]`) and switch between presses.
@@ -34,7 +36,8 @@ The program itself is called **iris-dictation**: `iris-dictation`, `iris-dictati
 ## Requirements
 
 - Hyprland (Omarchy for the waveform overlay), PipeWire.
-- An NVIDIA GPU with about 5 GB of free VRAM.
+- [iris-listen](https://github.com/p4ulcristian/iris-listen) running on this
+  machine (an NVIDIA GPU with about 5 GB of free VRAM) or on another one.
 - `uv`, `wtype`, `wl-clipboard`, `libpulse` (for `parec`/`pactl`),
   `libnotify`:
 
@@ -49,8 +52,8 @@ git clone https://github.com/p4ulcristian/omarchy-dictation ~/.local/share/omarc
 ~/.local/share/omarchy-dictation/install.sh
 ```
 
-The installer creates a Python environment inside the clone, downloads the
-model (about 3.9 GB) to `~/.local/share/iris-dictation/models/`, links
+Install iris-listen first. The installer creates a small Python environment
+inside the clone, links
 `iris-dictation` and friends into `~/.local/bin`, adds the waveform overlay to
 the Omarchy shell if there is one, and starts the `iris-dictation` systemd user
 service.
@@ -167,17 +170,16 @@ as heard. `fix_model = "haiku"` is faster (under 1 s) but catches fewer.
 
 ## How it works
 
-A resident daemon owns the microphone, the key and the model:
+A resident daemon owns the microphone and the key; the model is in iris-listen:
 
 1. **Key down:** `parec` starts recording from PipeWire, and apps in
    `mute_apps` get their capture stream muted. The mic itself stays on for
    iris-dictation.
-2. **Key up:** the clip goes through Qwen3-ASR (transformers, PyTorch,
-   CUDA). It is an audio encoder in front of a small language model that
-   writes the text a token at a time; a fixed-size cache and CUDA graphs
-   (`torch.compile`, done once at startup) make that about 15 ms a token
-   (`iris_dictation/model.py`). A recording longer than 28 s is cut at the
-   quietest moment between words and goes in pieces.
+2. **Key up:** the clip goes to iris-listen as a WAV, with your `languages`
+   (one is forced; with several the model tells) and your `vocabulary`, and
+   the text comes back (`iris_dictation/listen.py`). `listen_url` is where
+   iris-listen answers (`http://127.0.0.1:7861`), `listen_token_file` holds
+   its bearer token (`~/.config/iris-listen/token`, made by its install).
 3. The text is cleaned up: a hallucinated "Thank you." on silent
    clips is dropped, misheard names are fixed if `fix` is on, and short
    results are tidied. Then `wtype` types it into the focused window. Fixing
@@ -201,7 +203,7 @@ uv pip install --python .venv/bin/python pytest
 ```
 
 `tests/test_live.py` also runs the sample clips through the running daemon
-(skipped when it isn't running). Nothing is typed, but the overlay shows each
+and iris-listen (skipped when the daemon isn't running). Nothing is typed, but the overlay shows each
 result.
 
 ## Uninstall
@@ -211,7 +213,7 @@ systemctl --user disable --now iris-dictation
 rm ~/.config/systemd/user/iris-dictation.service ~/.local/bin/iris-dictation-daemon \
    ~/.local/bin/iris-dictation ~/.local/bin/iris-dictation-selftest
 rm ~/.config/omarchy/plugins/p4ulcristian.iris-dictation   # Omarchy only
-rm -rf ~/.local/share/omarchy-dictation ~/.local/share/iris-dictation ~/.config/iris-dictation   # clone, models, config
+rm -rf ~/.local/share/omarchy-dictation ~/.config/iris-dictation   # clone, config
 ```
 
 On Omarchy, also remove `p4ulcristian.iris-dictation` from the `plugins` list

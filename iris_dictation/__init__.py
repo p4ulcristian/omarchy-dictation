@@ -1,3 +1,3 @@
-"""Push-to-talk dictation for Hyprland on Wayland, with a local speech model."""
+"""Push-to-talk dictation for Hyprland on Wayland; the speech model is iris-listen."""
 
-__version__ = "4.1.1"
+__version__ = "5.0.0"

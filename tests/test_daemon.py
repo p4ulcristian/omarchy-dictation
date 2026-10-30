@@ -1,4 +1,4 @@
-"""The daemon's state machine with a fake model, microphone and output."""
+"""The daemon's state machine with fake ears (iris-listen), microphone and output."""
 
 import queue
 
@@ -21,7 +21,7 @@ class FakeRecorder:
         return self.samples
 
 
-class FakeModel:
+class FakeEars:
     def __init__(self, text):
         self.text = text
 
@@ -38,7 +38,7 @@ def make(monkeypatch, tmp_path):
     def build(text="This is a test.", seconds=2.0, amplitude=0.1):
         d = daemon.Daemon(config.Config(mute_apps=[], tail_ms=0))
         d.recorder = FakeRecorder(seconds, amplitude)
-        d.model = FakeModel(text)
+        d.ears = FakeEars(text)
         sent = []
         d.levels.send = sent.append
         return d, typed, sent

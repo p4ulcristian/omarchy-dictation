@@ -26,10 +26,13 @@ def runtime_dir() -> Path:
 
 @dataclass
 class Config:
-    # The model is Qwen3-ASR-1.7B on an NVIDIA GPU: about 0.1-0.7 s per clip
-    # and ~4.6 GB of VRAM while the daemon runs. This is the directory holding
-    # its files, filled by bin/iris-dictation-fetch-model.
-    model_path: str = "~/.local/share/iris-dictation/models/qwen3-asr-1.7b"
+    # The speech model runs in iris-listen (github.com/p4ulcristian/iris-listen),
+    # here or on another machine: about 0.1-0.7 s per clip. Its address, and the
+    # file holding its bearer token (iris-listen's install makes it).
+    listen_url: str = "http://127.0.0.1:7861"
+    listen_token_file: str = "~/.config/iris-listen/token"
+    # Seconds to wait for a transcript, the wait behind other callers included.
+    listen_timeout: float = 60.0
     # The languages you speak, as codes, e.g. ["hu", "en"]. One entry forces
     # that language; with several the model tells them apart itself. It
     # writes down what was said, never a translation. Empty means English.

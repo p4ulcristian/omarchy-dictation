@@ -1,4 +1,4 @@
-"""End to end through the running daemon: the real model on the sample clips.
+"""End to end through the running daemon and iris-listen: the real model on the sample clips.
 Skipped when the daemon is not running. Nothing is typed."""
 
 import re

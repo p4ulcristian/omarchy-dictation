@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install iris-dictation for the current user. Safe to run again.
-# Needs an NVIDIA GPU with about 5 GB of free VRAM.
+# The speech model runs in iris-listen (github.com/p4ulcristian/iris-listen):
+# install that first, here or on another machine (listen_url in the config).
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 SRC=$PWD
@@ -18,8 +19,9 @@ fi
 
 echo "Setting up the Python environment ..."
 [ -d .venv ] || uv venv -q --python 3.12 .venv
-uv pip install -q --python .venv/bin/python -r requirements.txt
-./bin/iris-dictation-fetch-model
+# Resolved in full, then synced: packages an older version needed (torch) go.
+uv pip compile -q --python .venv/bin/python requirements.txt -o .venv/requirements.lock
+uv pip sync -q --python .venv/bin/python .venv/requirements.lock
 
 mkdir -p ~/.local/bin ~/.config/systemd/user
 for b in iris-dictation-daemon iris-dictation iris-dictation-selftest; do

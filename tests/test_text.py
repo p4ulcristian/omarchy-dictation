@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from iris_dictation.audio import level, loudest_rms, split_at_pauses, to_float
+from iris_dictation.audio import level, loudest_rms, to_float
 from iris_dictation.text import is_silence_phrase, tidy_short
 
 
@@ -54,18 +54,3 @@ def test_level_scale():
     assert level(chunk(0.001)) == 0.0     # about -60 dB: silence
     assert level(chunk(0.5)) == 1.0       # loud
     assert 0 < level(chunk(0.005)) < 1    # about -46 dB: in between
-
-
-def test_short_recording_is_one_piece():
-    samples = np.ones(16000 * 20, dtype=np.float32)
-    assert len(split_at_pauses(samples, 16000)) == 1
-
-
-def test_long_recording_is_cut_at_the_pause():
-    rate = 16000
-    samples = np.full(rate * 70, 0.3, dtype=np.float32)
-    samples[rate * 25: rate * 25 + rate // 2] = 0.0          # a pause at 25 s
-    pieces = split_at_pauses(samples, rate)
-    assert all(len(p) <= 28 * rate for p in pieces)
-    assert abs(len(pieces[0]) / rate - 25.25) < 0.3            # cut inside the pause
-    assert sum(len(p) for p in pieces) == len(samples)          # nothing lost

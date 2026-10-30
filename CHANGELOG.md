@@ -1,5 +1,20 @@
 # Changelog
 
+## 5.0.0
+
+Changed:
+- The speech model is no longer in the daemon: it runs in
+  [iris-listen](https://github.com/p4ulcristian/iris-listen), a service with
+  the same model (Qwen3-ASR-1.7B) behind OpenAI's transcription API, which
+  other programs use too. One copy on the GPU for all of them. The daemon
+  sends each clip there with your `languages` and `vocabulary`; iris-listen
+  cuts long clips itself. Install iris-listen first, then run install.sh
+  again: the venv drops torch and transformers (`uv pip sync`).
+- New settings: `listen_url` (`http://127.0.0.1:7861`), `listen_token_file`
+  (`~/.config/iris-listen/token`), `listen_timeout` (60 s). `model_path` is
+  gone, and so is `bin/iris-dictation-fetch-model`; the old model folder,
+  `~/.local/share/iris-dictation/models`, can be deleted.
+
 ## 4.1.1
 
 Changed:

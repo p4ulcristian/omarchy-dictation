@@ -1,7 +1,8 @@
 """Push-to-talk dictation daemon.
 
-Holds the speech model resident so a key press costs nothing but the audio
-and about a tenth of a second of inference per second of speech.
+Holds the microphone and the key; the speech model runs in iris-listen
+(listen.py), which turns a clip into text in about a tenth of a second per
+second of speech.
 
 Flow: hold the key -> record -> release -> transcribe -> type into the
 focused window.
@@ -30,6 +31,7 @@ from . import output as out
 from .audio import HotRecorder, Mics, Recorder
 from .fix import Fixer
 from .keys import KeyWatcher
+from .listen import Listen
 from .mute import PlaybackDucker, StreamMuter
 from .sockets import LEVELS_SOCKET, SOCKET_NAME, ControlServer, LevelServer
 from .text import is_silence_phrase, tidy_short
@@ -81,7 +83,8 @@ class Daemon:
         self.mic_names: dict[str, str] = {}
         self.muter = StreamMuter(cfg.mute_apps)
         self.ducker = PlaybackDucker(cfg.duck_playback)
-        self.model = None
+        self.ears = Listen(cfg.listen_url, cfg.listen_token_file, cfg.languages,
+                           cfg.vocabulary, cfg.listen_timeout)
         self.levels = LevelServer(str(cfgmod.runtime_dir() / LEVELS_SOCKET))
         self.recorder.listener = lambda chunk: self.levels.send(f"level {audio.level(chunk):.3f}")
         self.fixer = None
@@ -121,11 +124,6 @@ class Daemon:
         if source not in self.mic_names:
             self.mic_names[source] = audio.sources().get(source, source) or "default microphone"
         self.levels.send(f"mic {self.mic_names[source]}")
-
-    def load_model(self) -> None:
-        from . import model
-
-        self.model = model.load(self.cfg.model_path, self.cfg.languages, self.cfg.vocabulary)
 
     def on_down(self, tag: str = "") -> None:
         with self.lock:
@@ -243,11 +241,7 @@ class Daemon:
             self.type_result(self.jobs.get())
 
     def recognize(self, samples: np.ndarray, rate: int) -> str:
-        # A long recording goes in pieces of under 30 s, cut between words,
-        # which keeps the prompt inside the model's fixed-size cache.
-        texts = (self.model.recognize(piece, sample_rate=rate) or ""
-                 for piece in audio.split_at_pauses(samples, rate))
-        return " ".join(t.strip() for t in texts if t.strip())
+        return (self.ears.recognize(samples, rate) or "").strip()
 
     def deliver(self, text: str) -> None:
         payload = text + (" " if self.cfg.trailing_space else "")
@@ -259,8 +253,6 @@ class Daemon:
             self.notify("Dictation: on clipboard", "Could not type it, press ctrl+v", timeout=4000)
 
     def run(self) -> int:
-        self.load_model()
-
         keycode = getattr(evdev.ecodes, self.cfg.key, None)
         if keycode is None:
             log.error("unknown key %s", self.cfg.key)

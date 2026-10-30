@@ -95,23 +95,6 @@ def rms(chunk: bytes) -> float:
     return float(np.sqrt(np.mean(x * x))) if len(x) else 0.0
 
 
-def split_at_pauses(samples: np.ndarray, rate: int, max_seconds: float = 28.0,
-                    search_seconds: float = 6.0, window: int = 480) -> list[np.ndarray]:
-    """Cut a recording into pieces of at most `max_seconds`, each cut at the
-    quietest 30 ms in the last `search_seconds` before the limit, so it falls
-    between words."""
-    pieces, start, limit = [], 0, int(max_seconds * rate)
-    while len(samples) - start > limit:
-        hi = start + limit
-        lo = hi - int(search_seconds * rate)
-        frames = samples[lo:hi][: (hi - lo) // window * window].reshape(-1, window)
-        cut = lo + int(np.argmin((frames ** 2).mean(axis=1))) * window + window // 2
-        pieces.append(samples[start:cut])
-        start = cut
-    pieces.append(samples[start:])
-    return pieces
-
-
 def loudest_rms(samples: np.ndarray, window: int = 480) -> float:
     """RMS of the loudest 30 ms (at 16 kHz) in the clip."""
     n = len(samples) // window * window
